@@ -2,42 +2,88 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
-	"io"
 	"log"
-	"math/rand"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/fatih/color"
+	"github.com/jeffkbkim/cryptocurrency/client"
+	"github.com/jeffkbkim/cryptocurrency/gossip"
+	"github.com/jeffkbkim/cryptocurrency/pki"
 
-	bl "github.com/jeffkbkim/cryptocurrency/blockchain"
+	"github.com/gorilla/mux"
+	"github.com/jinzhu/copier"
+
+	bc "github.com/jeffkbkim/cryptocurrency/blockchain"
 )
 
 var (
-	BALANCES = map[string]int{"binpy": 1_000_000}
+	mu    = &sync.Mutex{}
+	STATE = &gossip.State{
+		Peers: map[string]bool{},
+	}
 )
 
 func main() {
-	blockchain := &bl.Blockchain{
-		Blocks: []*bl.Block{},
+	flag.Parse()
+	port := flag.Args()[0]
+	var peer string
+
+	STATE.Blockchain = &bc.Blockchain{
+		Blocks: []*bc.Block{},
 	}
-	blockchain.CreateGenesisBlock("--------Genesis Block--------")
-	blockchain.AddToChain("Cinderella")
-	blockchain.AddToChain("The Three Stooges")
-	blockchain.AddToChain("Snow White")
-	fmt.Println(blockchain.IsValid())
+	privateKey := pki.GenerateKeyPair()
+	pubdata, privdata := pki.GetPubPriv(privateKey)
+	STATE.PublicKey = string(pubdata)
+	// fmt.Println("my pub key", STATE.PublicKey)
+	STATE.PrivateKey = string(privdata)
+	STATE.Me = port
+	STATE.Peers[port] = true
 
-	a := blockchain.Blocks
-	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(a), func(i, j int) { a[i], a[j] = a[j], a[i] })
-	fmt.Println(blockchain.IsValid())
+	if len(flag.Args()) > 1 {
+		peer = flag.Args()[1]
+		STATE.Peers[peer] = true
+	} else {
+		// you are the progenitor
+		STATE.Blockchain.CreateGenesisBlock(STATE.PublicKey, STATE.PrivateKey)
+	}
 
-	// addr := flag.String("port", "8080", "port to open")
-	// peer := flag.String("peer", "", "peer port to connect to")
+	go func() {
+		for {
+			for peer := range STATE.Peers {
+				if peer == port {
+					continue
+				}
+				fmt.Println("Gossiping with...", peer)
 
-	// log.Fatal(run(*addr, *peer))
+				mu.Lock()
+				copyState := gossip.State{}
+				err := copier.Copy(&copyState, STATE)
+				mu.Unlock()
+				if err != nil {
+					panic(err)
+				}
+				theirState, statusCode := client.Gossip(peer, &copyState)
+
+				if statusCode != http.StatusOK {
+					mu.Lock()
+					delete(STATE.Peers, peer)
+					color.Red("%s has disconnected from the network :(", peer)
+					mu.Unlock()
+				}
+				STATE.UpdateState(mu, theirState)
+			}
+
+			STATE.RenderState()
+			time.Sleep(3 * time.Second)
+		}
+	}()
+
+	log.Fatal(run(port, peer))
 }
 
 func run(addr string, peer string) error {
@@ -46,8 +92,8 @@ func run(addr string, peer string) error {
 	s := &http.Server{
 		Addr:           ":" + addr,
 		Handler:        mux,
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
+		ReadTimeout:    20 * time.Second,
+		WriteTimeout:   20 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 
@@ -60,74 +106,61 @@ func run(addr string, peer string) error {
 
 func makeMuxRouter() http.Handler {
 	muxRouter := mux.NewRouter()
-	muxRouter.HandleFunc("/balance/{id}", handleGetBalance).Methods("GET")
-	muxRouter.HandleFunc("/users/{id}", handleCreateUser).Methods("POST")
-	muxRouter.HandleFunc("/transfers/{from}/{to}/{amount}", handleCreateTransfer).Methods("POST")
+	muxRouter.HandleFunc("/gossip", handleGossip).Methods("POST")
+	muxRouter.HandleFunc("/transfers/{to}/{amount}", handleCreateTransfer).Methods("POST")
+	muxRouter.HandleFunc("/pub_key", handlePubKey).Methods("GET")
 	return muxRouter
 }
 
-func handleGetBalance(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	id := params["id"]
-	if _, ok := BALANCES[id]; !ok {
-		fmt.Println(id, "does not exist")
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	fmt.Printf("%s has %d\n", id, BALANCES[id])
-	io.WriteString(w, strconv.Itoa(BALANCES[id]))
-	printBalances()
-}
+func handleGossip(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	var theirState gossip.State
 
-func handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	id := params["id"]
-	if BALANCES[id] != 0 {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	err := decoder.Decode(&theirState)
+	if err != nil {
+		log.Fatal(err)
 	}
-	BALANCES[id] = 0
-	fmt.Println("OK")
-	io.WriteString(w, "OK")
-	printBalances()
+
+	STATE.UpdateState(mu, &theirState)
+
+	mu.Lock()
+	respBody, err := json.Marshal(STATE)
+	mu.Unlock()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, err = w.Write(respBody)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	from := params["from"]
-	to := params["to"]
+	toPort := params["to"]
+	to := client.PubKey(toPort)
+	// fmt.Println("to pubKey:", to)
 	amountStr := params["amount"]
 	amount, err := strconv.Atoi(amountStr)
-	fmt.Println("transfering amount", amount)
-
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		log.Fatal(err)
 	}
-
-	if _, ok := BALANCES[to]; !ok {
-		fmt.Println(to, "does not exist")
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	fmt.Println("transferring amount", amount)
+	txn := &bc.Transaction{
+		From:   STATE.PublicKey,
+		To:     to,
+		Amount: amount,
 	}
-
-	if BALANCES[from] < amount {
-		fmt.Println(from, "has insufficient funds", BALANCES[from])
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	BALANCES[from] -= amount
-	BALANCES[to] += amount
-	fmt.Println("OK")
-	io.WriteString(w, "OK")
-	printBalances()
+	txn.Signature = pki.Sign(txn.ToMessage(), STATE.PrivateKey)
+	STATE.Blockchain.AddToChain(txn)
 }
 
-func printBalances() {
-	b, err := json.MarshalIndent(BALANCES, "", "  ")
+func handlePubKey(w http.ResponseWriter, r *http.Request) {
+	_, err := w.Write([]byte(STATE.PublicKey))
 	if err != nil {
-		fmt.Println("error:", err)
+		panic(err)
 	}
-	fmt.Println(string(b))
 }

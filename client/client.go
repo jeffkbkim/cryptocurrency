@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 
@@ -36,10 +37,9 @@ func CreateUser(args ...string) {
 
 func CreateTransfer(args ...string) {
 	addr := args[0]
-	from := args[1]
-	to := args[2]
-	amount := args[3]
-	url := fmt.Sprintf("http://localhost:%s/transfers/%s/%s/%s", addr, from, to, amount)
+	to := args[1]
+	amount := args[2]
+	url := fmt.Sprintf("http://localhost:%s/transfers/%s/%s", addr, to, amount)
 	resp, err := http.Post(url, "json", nil)
 	if err != nil {
 		fmt.Println(err)
@@ -48,9 +48,9 @@ func CreateTransfer(args ...string) {
 	fmt.Println(resp.StatusCode)
 }
 
-func Gossip(peer string, state map[string]gossip.Pair) (map[string]gossip.Pair, int) {
-	url := fmt.Sprintf("http://localhost:%s/gossip", peer)
-	requestBody, err := json.Marshal(state)
+func Gossip(port string, state *gossip.State) (*gossip.State, int) {
+	url := fmt.Sprintf("http://localhost:%s/gossip", port)
+	requestBody, err := json.Marshal(*state)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -65,12 +65,25 @@ func Gossip(peer string, state map[string]gossip.Pair) (map[string]gossip.Pair, 
 	}
 
 	decoder := json.NewDecoder(resp.Body)
-	var theirState map[string]gossip.Pair
+	var theirState gossip.State
 
 	err = decoder.Decode(&theirState)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	return theirState, resp.StatusCode
+	return &theirState, resp.StatusCode
+}
+
+func PubKey(port string) string {
+	url := fmt.Sprintf("http://localhost:%s/pub_key", port)
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(bodyBytes)
 }

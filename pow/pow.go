@@ -1,10 +1,10 @@
 package pow
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"github.com/jeffkbkim/cryptocurrency/helper"
 )
 
 var (
@@ -15,15 +15,6 @@ type FindNonceResult struct {
 	Nonce string
 	Hash  string
 	Count int
-}
-
-func Hash(message string) string {
-	hash := sha256.New()
-	_, err := hash.Write([]byte(message))
-	if err != nil {
-		panic(err)
-	}
-	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func FindNonce(content string) FindNonceResult {
@@ -56,7 +47,7 @@ func IsValidNonce(content string, nonce string) (string, bool) {
 	for i := 0; i < DIFFICULTY; i++ {
 		threshold[i] = '0'
 	}
-	hash := Hash(content + nonce)
+	hash := helper.Hash(content + nonce)
 	return hash, strings.HasPrefix(hash, string(threshold))
 }
 

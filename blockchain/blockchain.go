@@ -3,6 +3,8 @@ package blockchain
 import (
 	"fmt"
 
+	"github.com/jeffkbkim/cryptocurrency/pki"
+
 	"github.com/fatih/color"
 
 	"github.com/jeffkbkim/cryptocurrency/pow"
@@ -14,22 +16,22 @@ type Blockchain struct {
 
 type Block struct {
 	PrevBlockHash string
-	Message       string
+	Transaction   *Transaction
 	Hash          string
 	Nonce         string
 	Count         int
 }
 
-func (b *Blockchain) AddToChain(message string) {
+func (b *Blockchain) AddToChain(txn *Transaction) {
 	newBlock := &Block{
-		Message: message,
+		Transaction: txn,
 	}
 	if len(b.Blocks) > 0 {
 		newBlock.PrevBlockHash = b.Blocks[len(b.Blocks)-1].Hash
 	}
 	newBlock.MineBlock()
 	b.Blocks = append(b.Blocks, newBlock)
-
+	fmt.Println(newBlock.PrevBlockHash)
 	newBlock.prettyPrint()
 }
 
@@ -46,11 +48,52 @@ func (b *Blockchain) IsValid() bool {
 			return false
 		}
 	}
+	return b.isAllSpendsValid()
+}
+
+func (b *Blockchain) isAllSpendsValid() bool {
+	balances := b.ComputeBalances()
+	for _, balance := range balances {
+		if balance < 0 {
+			return false
+		}
+	}
 	return true
 }
 
-func (b *Blockchain) CreateGenesisBlock(message string) {
-	b.AddToChain(message)
+func (b *Blockchain) ComputeBalances() map[string]int {
+	balances := map[string]int{}
+	genesisTxn := b.Blocks[0].Transaction
+	balances[genesisTxn.To] = genesisTxn.Amount
+
+	for i, block := range b.Blocks {
+		if i == 0 {
+			continue
+		}
+		txn := block.Transaction
+		balances[txn.From] -= txn.Amount
+		balances[txn.To] += txn.Amount
+	}
+	return balances
+}
+
+func (b *Blockchain) CreateGenesisBlock(pubKey string, privKey string) {
+	genesisTxn := &Transaction{
+		From:   "",
+		To:     pubKey,
+		Amount: 500_000,
+	}
+	genesisTxn.Signature = pki.Sign(genesisTxn.ToMessage(), privKey)
+	b.AddToChain(genesisTxn)
+}
+
+func (b *Blockchain) Print() {
+	if b.Blocks == nil {
+		return
+	}
+	for _, block := range b.Blocks {
+		color.Yellow("PrevBlockHash: %s, Own hash: %s, Nonce: %s, Txn: %s\n", block.PrevBlockHash, block.Hash, block.Nonce, block.Transaction.ToMessage())
+	}
 }
 
 func (b *Block) MineBlock() {
@@ -62,19 +105,18 @@ func (b *Block) MineBlock() {
 
 func (b *Block) isValid() bool {
 	_, ok := pow.IsValidNonce(b.blockContents(), b.Nonce)
-	return ok
+	return ok && b.Transaction.IsValidSignature()
 }
 
 func (b *Block) blockContents() string {
-	return b.PrevBlockHash + b.Message
+	return b.PrevBlockHash + b.Transaction.ToMessage()
 }
 
 func (b *Block) prettyPrint() {
-	// fmt.Println(text.Pad("Previous hash: "+b.PrevBlockHash, 20, '-'))
 	fmt.Println("----------------------------------------------------------------------------------------")
 	fmt.Println("----------------------------------------------------------------------------------------")
 	color.Yellow("      Previous hash: %s\n", b.PrevBlockHash)
-	color.Green("            Message: %s\n", b.Message)
+	color.Green("            Message: %s\n", b.Transaction.ToMessage())
 	color.Red("              Nonce: %s\n", b.Nonce)
 	color.Yellow("           Own hash: %s\n", b.Hash)
 	color.Cyan("              Count: %d\n", b.Count)

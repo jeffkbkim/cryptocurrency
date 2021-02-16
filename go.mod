@@ -8,4 +8,5 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/jedib0t/go-pretty v4.3.0+incompatible // indirect
 	github.com/jedib0t/go-pretty/v6 v6.1.0
+	github.com/jinzhu/copier v0.2.4
 )

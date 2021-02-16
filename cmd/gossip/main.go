@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -11,8 +10,6 @@ import (
 	"os"
 	"sync"
 	"time"
-
-	"github.com/jeffkbkim/cryptocurrency/client"
 
 	"github.com/fatih/color"
 	"github.com/gorilla/mux"
@@ -26,13 +23,6 @@ var (
 )
 
 func main() {
-	flag.Parse()
-	port := flag.Args()[0]
-	var peer string
-	if len(flag.Args()) > 1 {
-		peer = flag.Args()[1]
-	}
-
 	path, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
@@ -76,34 +66,34 @@ func main() {
 		}
 	}()
 
-	go func() {
-		for {
-			copyState := map[string]gossip.Pair{}
-			mu.Lock()
-			for k, v := range STATE {
-				copyState[k] = v
-			}
-			mu.Unlock()
-			for peer := range copyState {
-				if peer == port {
-					continue
-				}
-				fmt.Println("Gossiping with...", peer)
+	// go func() {
+	// 	for {
+	// 		copyState := map[string]gossip.Pair{}
+	// 		mu.Lock()
+	// 		for k, v := range STATE {
+	// 			copyState[k] = v
+	// 		}
+	// 		mu.Unlock()
+	// 		for peer := range copyState {
+	// 			if peer == port {
+	// 				continue
+	// 			}
+	// 			fmt.Println("Gossiping with...", peer)
 
-				theirState, statusCode := client.Gossip(peer, copyState)
-				updateState(theirState)
-				if statusCode != http.StatusOK {
-					mu.Lock()
-					delete(STATE, peer)
-					color.Red("%s has disconnected from the network :(", peer)
-					mu.Unlock()
-				}
-			}
+	// 			theirState, statusCode := client.Gossip(peer, copyState)
+	// 			updateState(theirState)
+	// 			if statusCode != http.StatusOK {
+	// 				mu.Lock()
+	// 				delete(STATE, peer)
+	// 				color.Red("%s has disconnected from the network :(", peer)
+	// 				mu.Unlock()
+	// 			}
+	// 		}
 
-			renderState()
-			time.Sleep(3 * time.Second)
-		}
-	}()
+	// 		renderState()
+	// 		time.Sleep(3 * time.Second)
+	// 	}
+	// }()
 
 	log.Fatal(run(port))
 }
