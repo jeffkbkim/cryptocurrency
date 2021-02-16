@@ -2,15 +2,17 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
+
+	bl "github.com/jeffkbkim/cryptocurrency/blockchain"
 )
 
 var (
@@ -18,10 +20,24 @@ var (
 )
 
 func main() {
-	addr := flag.String("port", "8080", "port to open")
-	peer := flag.String("peer", "", "peer port to connect to")
+	blockchain := &bl.Blockchain{
+		Blocks: []*bl.Block{},
+	}
+	blockchain.CreateGenesisBlock("--------Genesis Block--------")
+	blockchain.AddToChain("Cinderella")
+	blockchain.AddToChain("The Three Stooges")
+	blockchain.AddToChain("Snow White")
+	fmt.Println(blockchain.IsValid())
 
-	log.Fatal(run(*addr, *peer))
+	a := blockchain.Blocks
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(a), func(i, j int) { a[i], a[j] = a[j], a[i] })
+	fmt.Println(blockchain.IsValid())
+
+	// addr := flag.String("port", "8080", "port to open")
+	// peer := flag.String("peer", "", "peer port to connect to")
+
+	// log.Fatal(run(*addr, *peer))
 }
 
 func run(addr string, peer string) error {
