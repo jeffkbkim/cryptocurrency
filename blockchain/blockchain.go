@@ -4,10 +4,9 @@ import (
 	"fmt"
 
 	"github.com/jeffkbkim/cryptocurrency/pki"
+	"github.com/jeffkbkim/cryptocurrency/pow"
 
 	"github.com/fatih/color"
-
-	"github.com/jeffkbkim/cryptocurrency/pow"
 )
 
 type Blockchain struct {
@@ -31,7 +30,6 @@ func (b *Blockchain) AddToChain(txn *Transaction) {
 	}
 	newBlock.MineBlock()
 	b.Blocks = append(b.Blocks, newBlock)
-	fmt.Println(newBlock.PrevBlockHash)
 	newBlock.prettyPrint()
 }
 

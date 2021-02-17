@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"log"
 )
 
@@ -41,7 +40,6 @@ func Verify(ciphertext string, signature []byte, pubdata string) bool {
 	}
 	err = rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hash([]byte(ciphertext)), signature)
 	if err != nil {
-		fmt.Println("verify failed.")
 		log.Fatal(err)
 	}
 	return err == nil

@@ -13,6 +13,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/jeffkbkim/cryptocurrency/client"
 	"github.com/jeffkbkim/cryptocurrency/gossip"
+	"github.com/jeffkbkim/cryptocurrency/helper"
 	"github.com/jeffkbkim/cryptocurrency/pki"
 
 	"github.com/gorilla/mux"
@@ -36,10 +37,9 @@ func main() {
 	STATE.Blockchain = &bc.Blockchain{
 		Blocks: []*bc.Block{},
 	}
-	privateKey := pki.GenerateKeyPair()
-	pubdata, privdata := pki.GetPubPriv(privateKey)
+
+	pubdata, privdata := pki.GetPubPriv(pki.GenerateKeyPair())
 	STATE.PublicKey = string(pubdata)
-	// fmt.Println("my pub key", STATE.PublicKey)
 	STATE.PrivateKey = string(privdata)
 	STATE.Me = port
 	STATE.Peers[port] = true
@@ -88,7 +88,7 @@ func main() {
 
 func run(addr string, peer string) error {
 	mux := makeMuxRouter()
-	log.Println("Listening on", addr)
+	log.Println("Listening on port:", addr)
 	s := &http.Server{
 		Addr:           ":" + addr,
 		Handler:        mux,
@@ -141,14 +141,13 @@ func handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	toPort := params["to"]
 	to := client.PubKey(toPort)
-	// fmt.Println("to pubKey:", to)
 	amountStr := params["amount"]
 	amount, err := strconv.Atoi(amountStr)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		log.Fatal(err)
 	}
-	fmt.Println("transferring amount", amount)
+	color.Yellow("transferring amount %d from %s to %s\n", amount, helper.HumanReadableName(STATE.PublicKey), helper.HumanReadableName(to))
 	txn := &bc.Transaction{
 		From:   STATE.PublicKey,
 		To:     to,
